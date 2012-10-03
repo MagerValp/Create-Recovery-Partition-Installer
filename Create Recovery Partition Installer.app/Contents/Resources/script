@@ -1,0 +1,185 @@
+#!/bin/bash
+
+
+VER_PLIST_PATH="System/Library/CoreServices/SystemVersion.plist"
+PKGTMPL_PATH="PackageTemplate.pkg"
+DMTEST_PATH="$PKGTMPL_PATH/Contents/Resources/dmtest"
+COCOADIALOG_PATH="cocoaDialog.app"
+
+
+# Clean up on exit.
+cleanup_exit() {
+    if [ ! -z "$sysvol" ]; then
+        hdiutil eject -quiet "$sysvol"
+    fi
+    if [ ! -z "$recoveryvol" ]; then
+        hdiutil eject -quiet "$recoveryvol"
+    fi
+    if [ ! -z "$cocoadialogvol" ]; then
+        hdiutil eject -quiet "$cocoadialogvol"
+    fi
+    if [ -d "$tmpdir" ]; then
+        rm -rf "$tmpdir"
+    fi
+}
+
+trap cleanup_exit EXIT
+
+# Print error message and exit.
+error_exit() {
+    echo "${1:-"Unknown Error"}" 1>&2
+    exit ${2:-1}
+}
+
+# Execute cocoaDialog.
+cocoaDialog() {
+    ./cocoaDialog.app/Contents/MacOS/cocoaDialog "$@"
+}
+
+# Property list manipulation.
+plist_buddy() {
+    /usr/libexec/PlistBuddy -c "$@" 2>/dev/null
+}
+plist_read() {
+    local plist="$1"
+    local key="$2"
+    plist_buddy "Print \":$key\"" "$plist"
+}
+plist_write() {
+    local plist="$1"
+    local key="$2"
+    local type="$3"
+    local value="$4"
+    # Set fails if key doesn't already exists, so Delete and Add instead.
+    plist_buddy "Delete \":$key\"" "$plist"
+    plist_buddy "Add \":$key\" $type \"$value\"" "$plist"
+}
+
+
+# Download RecoveryHDUpdate.dmg and extract dmtest if needed.
+if [ ! -x "$DMTEST_PATH" ]; then
+    tmpdir=$( mktemp -d -t recovery )
+    recoverydmg="$tmpdir/RecoveryHDUpdate.dmg"
+    
+    echo "Downloading RecoveryHDUpdate.dmg…"
+    if [ -f ~/Downloads/RecoveryHDUpdate.dmg ]; then
+        cp ~/Downloads/RecoveryHDUpdate.dmg "$recoverydmg"
+    else
+        curl --silent --show-error --location --output "$recoverydmg" "http://support.apple.com/downloads/DL1464/en_US/RecoveryHDUpdate.dmg" || error_exit "Download of RecoveryHDUpdate.dmg failed\!"
+    fi
+    
+    # Mount RecoveryHDUpdate.dmg.
+    recoveryvol=$( hdiutil attach -nobrowse -mountrandom /tmp -noverify "$recoverydmg" | grep Apple_HFS | awk '{print $3}' )
+    if [ $? -ne 0 ]; then
+        error_exit "Mount of RecoveryHDUpdate.dmg failed\!"
+    fi
+    
+    # Extract dmtest from RecoveryHDUpdate.dmg.
+    echo "Extracting dmtest from RecoveryHDUpdate.dmg…"
+    pkgutil --expand "$recoveryvol/RecoveryHDUpdate.pkg" "$tmpdir/RecoveryHDUpdate_pkg"
+    cp "$tmpdir/RecoveryHDUpdate_pkg/RecoveryHDUpdate.pkg/Scripts/Tools/dmtest" "$DMTEST_PATH"
+    
+    # Eject and remove temporary files.
+    hdiutil eject -quiet "$recoveryvol" && unset recoveryvol
+    rm -rf "$tmpdir" && unset tmpdir
+fi
+
+# Download cocoaDialog if needed.
+if [ ! -d "$COCOADIALOG_PATH" ]; then
+    tmpdir=$( mktemp -d -t cocoadialog )
+    cocoadialogdmg="$tmpdir/cocoaDialog.dmg"
+    
+    echo "Downloading cocoaDialog.dmg…"
+    if [ -f ~/Downloads/cocoaDialog.dmg ]; then
+        cp ~/Downloads/cocoaDialog.dmg "$cocoadialogdmg"
+    else
+        curl --silent --show-error --location --output "$cocoadialogdmg" "https://github.com/downloads/mstratman/cocoadialog/cocoaDialog_3.0.0-beta7.dmg" || error_exit "Download of cocoaDialog.dmg failed\!"
+    fi
+    
+    # Mount cocoaDialog.dmg.
+    cocoadialogvol=$( hdiutil attach -nobrowse -mountrandom /tmp -noverify "$cocoadialogdmg" | grep Apple_HFS | awk '{print $3}' )
+    if [ $? -ne 0 ]; then
+        error_exit "Mount of cocoaDialog.dmg failed\!"
+    fi
+    
+    # Copy app from cocoaDialog.dmg.
+    echo "Copying cocoaDialog.app from cocoaDialog.dmg…"
+    ditto --noqtn "$cocoadialogvol/cocoaDialog.app" "$COCOADIALOG_PATH"
+    
+    # Eject and remove temporary files.
+    hdiutil eject -quiet "$cocoadialogvol" && unset cocoadialogvol
+    rm -rf "$tmpdir" && unset tmpdir
+fi
+
+
+if [ -z "$1" ]; then
+    echo "Drop an OS X 10.7+ installer onto this window to create a Recovery partition installer package."
+    exit 0
+fi
+
+echo "Checking $1…"
+
+
+# Find and mount InstallESD.dmg.
+if [ -f "$1/Contents/SharedSupport/InstallESD.dmg" ]; then
+    sysdmg="$1/Contents/SharedSupport/InstallESD.dmg"
+elif [ -f "$1" ]; then
+    sysdmg="$1"
+else
+    echo "Not a recognized Apple installer or system"
+    exit 1
+fi
+sysvol=$( hdiutil attach -nobrowse -mountrandom /tmp -noverify "$sysdmg" | grep Apple_HFS | awk '{print $3}' )
+if [ $? -ne 0 ]; then
+    error_exit "Mount of $sysdmg failed\!"
+fi
+
+# Check system version.
+if [ -f "$sysvol/$VER_PLIST_PATH" ]; then
+    ProductBuildVersion=$( plist_read "$sysvol/$VER_PLIST_PATH" ProductBuildVersion )
+    ProductCopyright=$( plist_read "$sysvol/$VER_PLIST_PATH" ProductCopyright )
+    ProductName=$( plist_read "$sysvol/$VER_PLIST_PATH" ProductName )
+    ProductUserVisibleVersion=$( plist_read "$sysvol/$VER_PLIST_PATH" ProductUserVisibleVersion )
+    ProductVersion=$( plist_read "$sysvol/$VER_PLIST_PATH" ProductVersion )
+    echo "Found $ProductName $ProductUserVisibleVersion $ProductBuildVersion © $ProductCopyright."
+else
+    error_exit "No system found\!"
+fi
+
+# Ask user for a pkg name.
+output_pkg=$( cocoaDialog filesave --title "Create Recovery Partition Installer" --text "Enter name for package" --with-extensions ".pkg" --with-directory ~/Downloads --with-file "RecoveryPartitionInstaller-$ProductUserVisibleVersion.pkg" )
+if [ -z "$output_pkg" ]; then
+    error_exit "Cancelled!"
+fi
+
+# Check if .pkg already exists.
+# Not needed, the save dialog handles this automatically.
+#if [ -f "$output_pkg" ]; then
+#    title="Create Recovery Partition Installer"
+#    text="$output_pkg already exists"
+#    infotext="Do you want to overwrite $output_pkg?"
+#    rv=$( cocoaDialog msgbox --string-output --icon "caution" --title "$title" --text "$text" --informative-text "$infotext" --button1 "Overwrite" --button2 "Cancel" )
+#    if [ "$rv" == "Overwrite" ]; then
+#        rm -rf "$output_pkg"
+#    else
+#        error_exit "Cancelled!"
+#    fi
+#fi
+
+# Copy package template.
+ditto --noqtn "$PKGTMPL_PATH" "$output_pkg" || error_exit "Creation of $output_pkg failed\!"
+
+# Set package version.
+plist_write "$output_pkg/Contents/Info.plist" "CFBundleShortVersionString" string "$ProductUserVisibleVersion"
+
+# Copy BaseSystem.* from InstallESD.
+echo "Copying BaseSystem from InstallESD.dmg…"
+cp -v "$sysvol"/BaseSystem.* "$output_pkg/Contents/Resources"
+chflags -R nohidden "$output_pkg"
+xattr -r -d com.apple.quarantine "$output_pkg"
+
+echo "Created $output_pkg"
+
+echo "Done."
+
+exit 0

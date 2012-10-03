@@ -1,0 +1,19 @@
+#!/bin/bash
+
+PKGPATH="$1"
+TARGETVOL="$3"
+
+DMTEST="$PKGPATH/Contents/Resources/dmtest"
+BASESYSTEMDMG="$PKGPATH/Contents/Resources/BaseSystem.dmg"
+BASESYSTEMCHUNKLIST="$PKGPATH/Contents/Resources/BaseSystem.chunklist"
+
+if [ ! -e "$DMTEST" -o ! -e "$BASESYSTEMDMG" -o ! -e "$BASESYSTEMCHUNKLIST" ]; then
+  echo "ERROR: Missing required resources from $PKGPATH/Contents/Resources/"
+  exit 1
+fi
+
+"$DMTEST" ensureRecoveryPartition "$TARGETVOL" "$BASESYSTEMDMG" 0 0 "$BASESYSTEMCHUNKLIST"
+
+# update helper partition boot info
+/usr/bin/touch "$TARGETVOL/Library/Preferences/SystemConfiguration/com.apple.Boot.plist"
+/usr/sbin/kextcache -f -u "$TARGETVOL"

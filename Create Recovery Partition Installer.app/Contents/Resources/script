@@ -168,6 +168,9 @@ fi
 
 # Copy package template.
 ditto --noqtn "$PKGTMPL_PATH" "$output_pkg" || error_exit "Creation of $output_pkg failed\!"
+# Fix permissions.
+chmod +x "$output_pkg/Contents/Resources/postflight"
+chmod +x "$output_pkg/Contents/Resources/dmtest"
 
 # Set package version.
 plist_write "$output_pkg/Contents/Info.plist" "CFBundleShortVersionString" string "$ProductUserVisibleVersion"

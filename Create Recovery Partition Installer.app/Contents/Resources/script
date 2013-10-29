@@ -9,6 +9,9 @@ COCOADIALOG_PATH="cocoaDialog.app"
 
 # Clean up on exit.
 cleanup_exit() {
+    if [ ! -z "$basesystemvol" ]; then
+        hdiutil eject -quiet "$basesystemvol"
+    fi
     if [ ! -z "$sysvol" ]; then
         hdiutil eject -quiet "$sysvol"
     fi

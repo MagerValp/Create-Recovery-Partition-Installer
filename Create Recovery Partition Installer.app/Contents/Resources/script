@@ -136,15 +136,24 @@ fi
 
 # Check system version.
 if [ -f "$sysvol/$VER_PLIST_PATH" ]; then
-    ProductBuildVersion=$( plist_read "$sysvol/$VER_PLIST_PATH" ProductBuildVersion )
-    ProductCopyright=$( plist_read "$sysvol/$VER_PLIST_PATH" ProductCopyright )
-    ProductName=$( plist_read "$sysvol/$VER_PLIST_PATH" ProductName )
-    ProductUserVisibleVersion=$( plist_read "$sysvol/$VER_PLIST_PATH" ProductUserVisibleVersion )
-    ProductVersion=$( plist_read "$sysvol/$VER_PLIST_PATH" ProductVersion )
-    echo "Found $ProductName $ProductUserVisibleVersion $ProductBuildVersion © $ProductCopyright."
+    version_plist="$sysvol/$VER_PLIST_PATH"
+# if DMG is 10.9, it is the BaseSystem.dmg within that will contain the system version info
+elif [ -f "$sysvol/BaseSystem.dmg" ]; then
+    basesystemvol=$( hdiutil attach -nobrowse -mountrandom /tmp -noverify "$sysvol/BaseSystem.dmg" | grep Apple_HFS | awk '{print $3}' )
+    if [ $? -ne 0 ]; then
+        error_exit "Mount of $basesystemvol failed\!"
+    fi
+    version_plist="$basesystemvol/$VER_PLIST_PATH"
 else
     error_exit "No system found\!"
 fi
+
+ProductBuildVersion=$( plist_read "$version_plist" ProductBuildVersion )
+ProductCopyright=$( plist_read "$version_plist" ProductCopyright )
+ProductName=$( plist_read "$version_plist" ProductName )
+ProductUserVisibleVersion=$( plist_read "$version_plist" ProductUserVisibleVersion )
+ProductVersion=$( plist_read "$version_plist" ProductVersion )
+echo "Found $ProductName $ProductUserVisibleVersion $ProductBuildVersion © $ProductCopyright."
 
 # Ask user for a pkg name.
 output_pkg=$( cocoaDialog filesave --title "Create Recovery Partition Installer" --text "Enter name for package" --with-extensions ".pkg" --with-directory ~/Downloads --with-file "RecoveryPartitionInstaller-$ProductUserVisibleVersion.pkg" )

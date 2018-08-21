@@ -124,7 +124,9 @@ echo "Checking $1…"
 
 
 # Find and mount InstallESD.dmg.
-if [ -f "$1/Contents/SharedSupport/InstallESD.dmg" ]; then
+if [ -f "$1/Contents/SharedSupport/BaseSystem.dmg" ]; then
+    sysdmg="$1/Contents/SharedSupport/BaseSystem.dmg"
+elif [ -f "$1/Contents/SharedSupport/InstallESD.dmg" ]; then
     sysdmg="$1/Contents/SharedSupport/InstallESD.dmg"
 elif [ -f "$1" ]; then
     sysdmg="$1"
@@ -135,6 +137,7 @@ fi
 sysvol=$( hdiutil attach -nobrowse -mountrandom /tmp -noverify "$sysdmg" | grep Apple_HFS | awk '{print $3}' )
 if [ $? -ne 0 ]; then
     error_exit "Mount of $sysdmg failed\!"
+    echo "Mount of $sysdmg failed\!"
 fi
 
 # Check system version.
@@ -189,7 +192,11 @@ plist_write "$output_pkg/Contents/Info.plist" "CFBundleShortVersionString" strin
 
 # Copy BaseSystem.* from InstallESD.
 echo "Copying BaseSystem from InstallESD.dmg…"
-cp -v "$sysvol"/BaseSystem.* "$output_pkg/Contents/Resources"
+if [ "$sysdmg" == "$1/Contents/SharedSupport/BaseSystem.dmg" ]; then
+    cp -v "$1/Contents/SharedSupport"/BaseSystem.* "$output_pkg/Contents/Resources"
+else
+    cp -v "$sysvol"/BaseSystem.* "$output_pkg/Contents/Resources"
+fi
 chflags -R nohidden "$output_pkg"
 xattr -r -d com.apple.quarantine "$output_pkg"
 

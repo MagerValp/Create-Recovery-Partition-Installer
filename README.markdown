@@ -3,7 +3,8 @@ Drag and drop a 10.7+ installer onto the app and it'll create an installer packa
 
 Version History
 ---------------
-
+* 1.2
+    * 10.13 support added by Howard Griffith.
 * 1.1
     * 10.9 support added by Timothy Sutton.
 * 1.0
